@@ -1,27 +1,60 @@
-import { useState } from 'react';
-import LoginPage from './pages/LoginPage.jsx';
-import DashboardPage from './pages/DashboardPage.jsx';
+import React, { useState, useEffect } from "react";
+import api from "./api/apiService";
+import DashboardPage from "./pages/DashboardPage";
+import LoginPage from "./pages/LoginPage";
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [countyName, setCountyName] = useState('');
-  const [isSuperUser, setIsSuperUser] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState(null);
 
-  const handleLogin = (county, superUser = false) => {
-    setCountyName(county);
-    setIsSuperUser(superUser);
-    setIsAuthenticated(true);
+  // Load stored session on startup
+  useEffect(() => {
+    const u = api.getStoredUser();
+    setUser(u);
+    setLoadingUser(false);
+  }, []);
+
+  // Handle login
+  const handleLogin = async (username, password) => {
+    setLoginLoading(true);
+    setLoginError(null);
+
+    try {
+      const userData = await api.login(username, password);
+      setUser(userData);
+    } catch (err) {
+      setLoginError(err.message);
+      console.error("Login error:", err);
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCountyName('');
-    setIsSuperUser(false);
+  // Handle logout
+  const handleLogout = async () => {
+    await api.logout();
+    setUser(null);
   };
 
-  return isAuthenticated ? (
-    <DashboardPage countyName={countyName} isSuperUser={isSuperUser} onLogout={handleLogout} />
-  ) : (
-    <LoginPage onLogin={handleLogin} />
-  );
+  if (loadingUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-700">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        loading={loginLoading}
+        error={loginError}
+      />
+    );
+  }
+
+  return <DashboardPage user={user} onLogout={handleLogout} />;
 }

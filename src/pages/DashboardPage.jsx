@@ -1,280 +1,236 @@
-import React, { useState, useEffect } from "react";
-import {
-  Activity,
-  Calendar,
-  FileText,
-  UserPlus,
-  Users,
-  LogOut,
-  MapPin,
-} from "lucide-react";
-import DashboardCard from "../components/DashboardCard";
+import React, { useEffect, useState } from "react";
 import api from "../api/apiService";
+import { MapPin, ExternalLink, AlertCircle } from "lucide-react";
 
-export default function DashboardPage({ countyName, isSuperUser, onLogout }) {
-  const [activeDashboard, setActiveDashboard] = useState(null);
-  const [dashboards, setDashboards] = useState({});
-  const [selectedCounty, setSelectedCounty] = useState(null);
-  const [allCounties, setAllCounties] = useState([]);
+export default function DashboardPage({ user, onLogout }) {
+  const [dashboardPayload, setDashboardPayload] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [allCounties, setAllCounties] = useState([]);
+  const [selectedCountyId, setSelectedCountyId] = useState(user.county_id || "");
   const [error, setError] = useState(null);
+  const [iframeError, setIframeError] = useState(false);
 
-  const dashboardConfig = [
-    {
-      key: "visits",
-      title: "Visits",
-      description: "View and analyze patient visit statistics and trends",
-      icon: Activity,
-    },
-    {
-      key: "appointments",
-      title: "Appointments",
-      description: "Track scheduled appointments and attendance rates",
-      icon: Calendar,
-    },
-    {
-      key: "encounters",
-      title: "Encounters",
-      description: "Monitor patient encounters and clinical interactions",
-      icon: FileText,
-    },
-    {
-      key: "enrollment",
-      title: "Enrollment",
-      description: "Manage patient enrollment and registration data",
-      icon: UserPlus,
-    },
-    {
-      key: "patients",
-      title: "Patients",
-      description: "Access comprehensive patient records and demographics",
-      icon: Users,
-    },
-  ];
-
-  // ✅ Fetch dashboards (for county or current user)
- const loadDashboards = async (countyId = null) => {
-  try {
+  // Load dashboard payload
+  const loadDashboard = async (countyId = null) => {
     setLoading(true);
-    const response = await api.getDashboards(countyId);
-    console.log("Dashboards API raw response:", response);
+    setError(null);
+    setIframeError(false);
 
-    // 🧠 Handle different response shapes
-    const success = response.success || response.message?.success;
-    const dashboards = response.dashboards || response.message?.dashboards;
-    const msg =
-      typeof response.message === "string"
-        ? response.message
-        : response.message?.message || "Failed to fetch dashboards";
+    try {
+      const payload = await api.getDashboard(countyId);
+      console.log("Dashboard payload:", payload);
+      
+      setDashboardPayload(payload);
 
-    if (success) {
-      setDashboards(dashboards || {});
-    } else {
-      throw new Error(msg);
+      // Update stored user for non-superusers
+      if (!user.is_super_user && payload.county_name) {
+        const stored = JSON.parse(localStorage.getItem("user") || "{}");
+        stored.county_name = payload.county_name;
+        localStorage.setItem("user", JSON.stringify(stored));
+      }
+    } catch (err) {
+      console.error("loadDashboard error", err);
+      setError(err.message || "Failed to load dashboard");
+      setDashboardPayload(null);
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error("Error loading dashboards:", err);
-    setError(err.message || JSON.stringify(err));
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
-
-  // ✅ Load all counties (for super admin)
+  // Load counties if superuser
   const loadAllCounties = async () => {
-  try {
-    const response = await api.getAllCounties();
-    console.log("All counties API raw response:", response);
-
-    // 🧠 Handle different response formats
-    const success = response.success || response.message?.success;
-    const counties = response.counties || response.message?.counties;
-    const msg =
-      typeof response.message === "string"
-        ? response.message
-        : response.message?.message || "Failed to load counties";
-
-    if (success) {
+    try {
+      const counties = await api.getAllCounties();
       setAllCounties(counties || []);
 
-      // ✅ Auto-select first county
-      if (counties && counties.length > 0) {
-        const firstCounty = counties[0];
-        setSelectedCounty(firstCounty.name || firstCounty.id);
-        await loadDashboards(firstCounty.name || firstCounty.id);
+      // Auto-select first if none selected
+      if (!selectedCountyId && counties?.length) {
+        const id = counties[0].county_id;
+        setSelectedCountyId(id);
+        await loadDashboard(id);
       }
-    } else {
-      throw new Error(msg);
+    } catch (err) {
+      console.error("loadAllCounties error", err);
+      setError(err.message || "Failed to load counties");
     }
-  } catch (err) {
-    console.error("Error loading counties:", err);
-    setError(err.message || JSON.stringify(err));
-  }
-};
+  };
 
-  // ✅ Initial load
   useEffect(() => {
-    if (isSuperUser) {
+    if (user.is_super_user) {
       loadAllCounties();
     } else {
-      loadDashboards();
+      loadDashboard();
     }
-  }, [isSuperUser]);
+  }, []);
 
-  // ✅ Handle county dropdown change
-  const handleCountySelect = async (e) => {
-    const countyId = e.target.value;
-    setSelectedCounty(countyId);
-    await loadDashboards(countyId);
+  const onCountyChange = async (e) => {
+    const id = e.target.value;
+    setSelectedCountyId(id);
+    await loadDashboard(id);
   };
 
-  // ✅ Handle card toggle
-  const handleCardClick = (key) => {
-    setActiveDashboard(activeDashboard === key ? null : key);
+  const openInNewTab = () => {
+    const url = dashboardPayload?.dashboard_url;
+    if (url && url.includes("http")) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      alert("No valid dashboard URL configured for this county");
+    }
   };
 
-  // ✅ Loading & Error UI
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-gray-600 text-lg">
-        Loading dashboards...
-      </div>
-    );
-  }
+  const handleIframeError = () => {
+    setIframeError(true);
+  };
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-red-600 text-lg">
-        {error}
-      </div>
-    );
-  }
-
-  // ✅ Main Layout
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-md border-r border-gray-200 p-6 space-y-6 flex flex-col justify-between">
+      <aside className="w-64 bg-white border-r border-gray-200 p-6 flex flex-col justify-between">
         <div>
-          <div>
-            <h2 className="text-2xl font-bold text-blue-600 mb-2">Dashboard</h2>
-            <p className="text-sm text-gray-500 mb-6">
-              {isSuperUser ? "Super Admin — All Counties" : countyName}
-            </p>
-          </div>
-
-          {/* Navigation */}
-          <nav className="space-y-4">
-            {dashboardConfig.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => handleCardClick(item.key)}
-                className={`flex items-center gap-3 w-full text-left px-3 py-2 rounded-lg transition-all ${
-                  activeDashboard === item.key
-                    ? "bg-blue-100 text-blue-700 font-semibold"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <item.icon className="w-5 h-5" />
-                {item.title}
-              </button>
-            ))}
+          <h2 className="text-xl font-bold text-blue-600 mb-4">County Dashboard</h2>
+          <nav className="space-y-2">
+            <button
+              disabled
+              className="flex items-center gap-3 w-full text-left px-3 py-2 rounded-lg bg-blue-50 text-blue-700 font-semibold"
+            >
+              <MapPin className="w-4 h-4" />
+              County Dashboard
+            </button>
+            <button
+              onClick={openInNewTab}
+              disabled={!dashboardPayload?.dashboard_url}
+              className="flex items-center gap-3 w-full text-left px-3 py-2 rounded-lg transition text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open in New Tab
+            </button>
           </nav>
         </div>
 
-        {/* Logout Button */}
-        <button
-          onClick={onLogout}
-          className="flex items-center gap-2 text-red-600 hover:text-red-800 font-medium mt-6 w-full px-3 py-2 rounded-lg hover:bg-red-50 transition-all"
-        >
-          <LogOut className="w-5 h-5" />
-          Logout
-        </button>
+        <div>
+          <div className="text-sm text-gray-500 mb-3">Logged in as</div>
+          <div className="mb-3">
+            <div className="text-sm font-medium text-gray-800">
+              {dashboardPayload?.county_name || user.county_name}
+            </div>
+            <div className="text-xs text-gray-500">
+              {user.is_super_user ? "Super Admin" : "County User"}
+            </div>
+          </div>
+
+          {user.is_super_user && (
+            <select
+              value={selectedCountyId || ""}
+              onChange={onCountyChange}
+              className="w-full border px-2 py-2 rounded text-sm mb-3 focus:ring-2 focus:ring-blue-600 outline-none"
+            >
+              <option value="">Select county</option>
+              {allCounties.map((c) => (
+                <option key={c.county_id} value={c.county_id}>
+                  {c.county_name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={onLogout}
+            className="w-full text-red-600 hover:text-red-800 text-sm font-medium px-3 py-2 rounded hover:bg-red-50 transition"
+          >
+            Logout
+          </button>
+        </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 p-10 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-semibold text-gray-800">
-            {isSuperUser
-              ? "Super Admin Dashboard"
-              : `${countyName} County Dashboard`}
-          </h1>
-
-          {/* ✅ County selector for Super Admin */}
-          {isSuperUser && (
-            <div className="flex items-center gap-2">
-              <MapPin className="text-blue-600" />
-              <select
-                value={selectedCounty || ""}
-                onChange={handleCountySelect}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="">Select a county</option>
-                {allCounties.map((county) => (
-                  <option key={county.name} value={county.name}>
-                    {county.county_name}
-                  </option>
-                ))}
-              </select>
+      {/* Main area */}
+      <main className="flex-1 bg-gray-50">
+        <div className="h-full w-full flex flex-col">
+          {/* Top bar */}
+          <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-800">
+                {dashboardPayload?.county_name || user.county_name} Dashboard
+              </h1>
+              <div className="text-sm text-gray-500">Unified county dashboard</div>
             </div>
-          )}
-        </header>
-
-        {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {dashboardConfig.map((config) => (
-            <DashboardCard
-              key={config.key}
-              title={config.title}
-              description={config.description}
-              icon={config.icon}
-              onClick={() => handleCardClick(config.key)}
-            />
-          ))}
-        </div>
-
-        {/* Embedded Dashboard */}
-        {activeDashboard && (
-          <div className="mt-10 bg-white shadow-lg border border-gray-200 rounded-xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">
-                {
-                  dashboardConfig.find((d) => d.key === activeDashboard)
-                    ?.title
-                }{" "}
-                Dashboard
-              </h2>
+            <div>
               <button
-                onClick={() => setActiveDashboard(null)}
-                className="text-sm text-red-600 hover:underline"
+                onClick={openInNewTab}
+                disabled={!dashboardPayload?.dashboard_url}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Close
+                <ExternalLink className="w-4 h-4" />
+                Open in new tab
               </button>
             </div>
+          </div>
 
-            {dashboards[activeDashboard]?.includes("https://") ? (
-              <iframe
-                src={dashboards[activeDashboard]}
-                title={`${activeDashboard} Dashboard`}
-                className="w-full h-[700px] rounded-lg border border-gray-300"
-                allowFullScreen
-              ></iframe>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-gray-500">
-                <p>
-                  No dashboard available yet for{" "}
-                  <span className="font-semibold text-gray-700">
-                    {activeDashboard}
-                  </span>
-                  .
-                </p>
+          {/* Content area */}
+          <div className="flex-1 overflow-hidden">
+            {loading ? (
+              <div className="h-full flex flex-col items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                <div className="text-gray-600">Loading dashboard...</div>
               </div>
+            ) : error ? (
+              <div className="h-full flex flex-col items-center justify-center p-6">
+                <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
+                <div className="text-red-600 text-lg font-medium mb-2">Error Loading Dashboard</div>
+                <div className="text-gray-600 mb-4">{error}</div>
+                <button
+                  onClick={() => loadDashboard(selectedCountyId)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : !dashboardPayload?.dashboard_url || !dashboardPayload.dashboard_url.includes("http") ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-500 p-6">
+                <AlertCircle className="w-16 h-16 text-yellow-500 mb-4" />
+                <div className="text-lg font-medium text-gray-700 mb-2">Dashboard Not Configured</div>
+                <div className="text-center">
+                  No dashboard URL has been configured for {dashboardPayload?.county_name || "this county"}.
+                  <br />
+                  Please contact your administrator to set up the dashboard.
+                </div>
+                <button
+                  onClick={openInNewTab}
+                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Try Opening Anyway
+                </button>
+              </div>
+            ) : iframeError ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-500 p-6">
+                <AlertCircle className="w-16 h-16 text-orange-500 mb-4" />
+                <div className="text-lg font-medium text-gray-700 mb-2">Dashboard Cannot Be Embedded</div>
+                <div className="text-center mb-4">
+                  The dashboard cannot be displayed in an iframe due to security restrictions.
+                  <br />
+                  Please open it in a new tab instead.
+                </div>
+                <button
+                  onClick={openInNewTab}
+                  className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  <ExternalLink className="w-5 h-5" />
+                  Open in New Tab
+                </button>
+              </div>
+            ) : (
+              <iframe
+                src={dashboardPayload.dashboard_url}
+                title={`${dashboardPayload.county_name} Dashboard`}
+                className="w-full h-full border-0"
+                allowFullScreen
+                onError={handleIframeError}
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              />
             )}
           </div>
-        )}
+        </div>
       </main>
     </div>
   );
 }
+
