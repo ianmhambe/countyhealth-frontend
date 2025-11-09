@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import api from "./api/apiService";
 import DashboardPage from "./pages/DashboardPage";
+import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import LoginPage from "./pages/LoginPage";
 
 export default function App() {
@@ -20,7 +21,6 @@ export default function App() {
   const handleLogin = async (username, password) => {
     setLoginLoading(true);
     setLoginError(null);
-
     try {
       const userData = await api.login(username, password);
       setUser(userData);
@@ -54,6 +54,11 @@ export default function App() {
         error={loginError}
       />
     );
+  }
+
+  // Route based on user role - FIXED: Use SuperAdminDashboard instead of CountyManagementPage
+  if (user.is_super_user) {
+    return <SuperAdminDashboard user={user} onLogout={handleLogout} />;
   }
 
   return <DashboardPage user={user} onLogout={handleLogout} />;
