@@ -1,12 +1,15 @@
-const API_BASE_URL = "http://127.0.0.1:8001";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8001";
+
+console.log("API Base URL:", API_BASE_URL);
 
 const api = {
-    // ---
+    // --
     // USER SESSION HELPERS
-    // ---
+    // --
     saveUser(user) {
         localStorage.setItem("user", JSON.stringify(user));
     },
+    
     getStoredUser() {
         try {
             const raw = localStorage.getItem("user");
@@ -18,35 +21,42 @@ const api = {
             return null;
         }
     },
+    
     clearUser() {
         localStorage.removeItem("user");
     },
+    
     getToken() {
         const u = this.getStoredUser();
         return u?.token || null;
     },
-    // ---
+
+    // --
     // LOGIN
-    // ---
+    // --
     async login(username, password) {
         try {
             const response = await fetch(
                 `${API_BASE_URL}/api/method/countyhealth_backend.api.login`,
                 {
                     method: "POST",
-                    headers: {'Content-Type': "application/json" },
+                    headers: {'Content-Type': "application/json"},
                     body: JSON.stringify({ username, password }),
                 }
             );
-            const data = await response.json();
+            
+            console.log("Login response:", response);
 
-            console.log("Login response:", data); // Add this for debugging
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
 
             if (data.exc || data.exception) {
                 throw new Error("Invalid username or password");
             }
 
-            // FIXED: Check if data.message exists (success case)
             if (!data.message) {
                 throw new Error("Invalid response from server");
             }
@@ -58,9 +68,10 @@ const api = {
             throw new Error(error.message || "Login failed");
         }
     },
-    // ---
+
+    // --
     // LOGOUT
-    // ---
+    // --
     async logout() {
         try {
             const token = this.getToken();
@@ -69,7 +80,7 @@ const api = {
                 return;
             }
             await fetch(
-                `${API_BASE_URL}/api/method/countyhealth_backend.api.logout?token=${token}`, 
+                `${API_BASE_URL}/api/method/countyhealth_backend.api.logout?token=${token}`,
                 { method: "POST" }
             );
             this.clearUser();
@@ -78,27 +89,38 @@ const api = {
             this.clearUser();
         }
     },
-    // ---
+
+    // --
     // GET DASHBOARD
-    // ---
+    // --
     async getDashboard(countyId = null) {
         try {
             const token = this.getToken();
             if (!token) throw new Error("Not authenticated");
+            
             const url = countyId
                 ? `${API_BASE_URL}/api/method/countyhealth_backend.api.get_dashboard?token=${token}&county_id=${countyId}`
                 : `${API_BASE_URL}/api/method/countyhealth_backend.api.get_dashboard?token=${token}`;
+                
             const res = await fetch(url);
+            
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            
             const data = await res.json();
+            
             if (data.exc || data.exception) {
                 throw new Error(data.exception || "Failed to load dashboard");
             }
+            
             return data.message;
         } catch (error) {
             console.error("getDashboard error:", error);
             throw error;
         }
     },
+
     // ---
     // GET ALL COUNTIES (Super admin)
     // ---
@@ -108,24 +130,29 @@ const api = {
             if (!token) throw new Error("Not authenticated");
 
             let url = `${API_BASE_URL}/api/method/countyhealth_backend.api.get_all_counties?token=${token}&page=${page}&page_size=${pageSize}`;
+            
             if (search) {
                 url += `&search=${encodeURIComponent(search)}`;
             }
-
+            
             const res = await fetch(url);
+            
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            
             const data = await res.json();
-            if (data.exc || data.exception) {
+            
+            if (data.exe || data.exception) {
                 throw new Error(data.exception || "Failed to load counties");
             }
+            
             return data.message;
         } catch (error) {
             console.error("getAllCounties error:", error);
             throw error;
         }
     },
-    // ================================================================
-    // NEW COUNTY MANAGEMENT ENDPOINTS
-    // ================================================================
 
     // ---
     // CREATE COUNTY
@@ -151,7 +178,12 @@ const api = {
                 }
             );
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
+            
             if (data.exc || data.exception) {
                 throw new Error(data.exception || data._server_messages || "Failed to create county");
             }
@@ -162,6 +194,7 @@ const api = {
             throw error;
         }
     },
+
     // ---
     // UPDATE COUNTY
     // ---
@@ -183,7 +216,12 @@ const api = {
                 }
             );
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
+            
             if (data.exc || data.exception) {
                 throw new Error(data.exception || data._server_messages || "Failed to update county");
             }
@@ -194,6 +232,7 @@ const api = {
             throw error;
         }
     },
+
     // ---
     // DELETE COUNTY
     // ---
@@ -214,16 +253,23 @@ const api = {
                 }
             );
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
+            
             if (data.exc || data.exception) {
                 throw new Error(data.exception || "Failed to delete county");
             }
+
             return data.message;
         } catch (error) {
             console.error("deleteCounty error:", error);
             throw error;
         }
     },
+
     // ---
     // GET COUNTY DETAILS
     // ---
@@ -232,12 +278,16 @@ const api = {
             const token = this.getToken();
             if (!token) throw new Error("Not authenticated");
 
-            const res = await fetch(
-                `${API_BASE_URL}/api/method/countyhealth_backend.api.get_county_details?token=${token}&county_id=${countyId}`
-            );
+            const url = `${API_BASE_URL}/api/method/countyhealth_backend.api.get_county_details?token=${token}&county_id=${countyId}`;
+            const res = await fetch(url);
+
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
 
             const data = await res.json();
-            if (data.exc || data.exception) {
+            
+            if (data.exe || data.exception) {
                 throw new Error(data.exception || "Failed to load county details");
             }
 
